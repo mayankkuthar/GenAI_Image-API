@@ -1,0 +1,54 @@
+.env
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+# Installer logs
+pip-log.txt
+# Unit test / coverage
+.coverage
+.tox/
+.pytest_cache/
+# MyPy
+.mypy_cache/
+# IDEs and editors
+.vscode/
+.idea/
+# OS files
+.DS_Store
+Thumbs.db
+# Notebook checkpoints
+.ipynb_checkpoints/
+# Output and data
+output/
+json_output/
+*.xlsx
+*.xls
+*.json
+# Logs and databases
+*.log
+*.sqlite3
+# Vercel
+.vercel/
+.vercel_build_output/
+# Misc
+.cache/
+*.bak
+
+# Do not accidentally commit secrets
+*.pem
+*.key
+
+# Node
+node_modules/
