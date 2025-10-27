@@ -226,7 +226,7 @@ if not GEMINI_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in environment variables!")
 
 genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 
 class JsonCorrector:
     def __init__(self):
