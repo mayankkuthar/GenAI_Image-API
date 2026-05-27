@@ -22,25 +22,28 @@ logging.basicConfig(
 # Document configurations
 DAYBOOK_SHEET_OUTPUT_STRUCTURE = '''
 {
-  "Day 1": {
-    "Date": "date",
-    "Cash Sale": "float",
-    "Credit Sale": "float",
-    "Cash Collection": "float",
-    "Cash Purchase": "float",
-    "Credit Purchase": "float",
-    "Cash Paid to Suppliers": "float",
-    "Transportation": "float",
-    "Owner's Wages": "float", 
-    "Workers' Wages": "float",
-    "Electricity": "float",
-    "Repairs": "float",
-    "Other Cost": "float",
-    "Other Income": "float",
-    "Loan": "float",
-    "Interest": "float",
-    "Amount": "float"
-  }
+  "Daybook Record": {
+    "Enterprise ID": "string",
+    "Month": "MMM YY",
+    "Day 1": {
+        "Date": "date",
+        "Cash Sale": "float",
+        "Credit Sale": "float",
+        "Cash Collection": "float",
+        "Cash Purchase": "float",
+        "Credit Purchase": "float",
+        "Cash Paid to Suppliers": "float",
+        "Transportation": "float",
+        "Owner's Wages": "float", 
+        "Workers' Wages": "float",
+        "Electricity": "float",
+        "Repairs": "float",
+        "Other Cost": "float",
+        "Other Income": "float",
+        "Loan": "float",
+        "Interest": "float",
+        "Amount": "float"
+    }
 }
 '''
 
@@ -257,36 +260,36 @@ Extract data strictly according to the following JSON structure.
 ### CORRECT OUTPUT EXAMPLE
 If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
 
-{{
-  "Daybook Record": {{
+{
+  "Daybook Record": {
     "Enterprise ID": "ABC123",
     "Month": "Jan 25",
-    "Day 1": {{
+    "Day 1": {
       "Sale in cash and UPI": 500,
       "Rent paid": 200
-    }},
-    "Day 2": {{
+    },
+    "Day 2": {
       "Sale in cash and UPI": 300,
       "Buy raw material in cash and UPI": 150,
       "Other costs": 50
-    }}
-  }}
-}}
+    }
+  }
+}
 
 ### INCORRECT OUTPUT (DO NOT DO THIS)
-{{
-  "Daybook Record": {{
+{
+  "Daybook Record": {
     "Enterprise ID": "ABC123",
     "Month": "Jan 25",
-    "Day 1": {{
+    "Day 1": {
       "Sale in cash and UPI": 500,
       "Sale on credit": null,
       "Cash received from customers": null,
       ...ALL OTHER FIELDS AS NULL...
       "Rent paid": 200
-    }}
-  }}
-}}
+    }
+  }
+}
 """
 
 # Initialize environment variables
