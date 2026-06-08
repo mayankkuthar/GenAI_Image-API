@@ -226,7 +226,7 @@ Remember:
 Now, proceed with your examination and data extraction from the provided enterprise financial document image.
 """
 
-BASE_SYSTEM_MESSAGE_FOR_DAYBOOK = f"""
+BASE_SYSTEM_MESSAGE_FOR_DAYBOOK = """
 You are a high-precision financial data extraction AI. Your task is to digitize "Daybook" images into structured JSON with MINIMAL output size.
 
 ### INPUT CONTEXT
@@ -546,12 +546,12 @@ class ImageProcessor:
             # 🔹 CONDITION: If Daybook → use Daybook-specific system message
             if document_type == "Daybook":
                 system_message = BASE_SYSTEM_MESSAGE_FOR_DAYBOOK
-            else:
-                if output_structure:
-                    system_message = system_message.replace(
-                        "{{OUTPUT_STRUCTURE}}",
-                        output_structure
-                    )
+
+            if output_structure:
+                system_message = system_message.replace(
+                    "{{OUTPUT_STRUCTURE}}",
+                    output_structure
+                )
 
             # Process with Gemini
             result = await self.process_with_gemini(image_data, system_message)
