@@ -52,3 +52,6 @@ json_output/
 
 # Node
 node_modules/
+
+# Local Testing Scripts
+test_local.py
