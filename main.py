@@ -26,13 +26,13 @@ DAYBOOK_SHEET_OUTPUT_STRUCTURE = '''
     "Enterprise ID": "string",
     "Month": "MMM YY",
     "Day 1": {
-        "Sale in cash and UPI": "float",
-        "Sale on credit": "float",
-        "Cash received": "float",
-        "Buy raw material in cash and UPI": "float",
-        "Buy raw material on credit": "float",
-        "Cash paid to suppliers": "float",
-        "Cash paid for transportation": "float",
+        "Sale in Cash and UPI": "float",
+        "Sale on Credit": "float",
+        "Cash Received": "float",
+        "Raw Material (Cash & UPI)": "float",
+        "Raw Material (Credit)": "float",
+        "Cash Paid to Suppliers": "float",
+        "Transportation Charges": "float",
         "Worker Wages": "float",
         "Owner Salary": "float",
         "Other Owner Withdrawal": "float",
@@ -40,20 +40,20 @@ DAYBOOK_SHEET_OUTPUT_STRUCTURE = '''
         "Shop Rent paid": "float",
         "Loan Repayment": "float",
         "Other Income": "float",
-        "Other Cost": "float"
+        "Other costs": "float"
     }
   }
 }
 '''
 
 DAY_FIELDS = [
-    "Sale in cash and UPI",
-    "Sale on credit",
-    "Cash received",
-    "Buy raw material in cash and UPI",
-    "Buy raw material on credit",
-    "Cash paid to suppliers",
-    "Cash paid for transportation",
+    "Sale in Cash and UPI",
+    "Sale on Credit",
+    "Cash Received",
+    "Raw Material (Cash & UPI)",
+    "Raw Material (Credit)",
+    "Cash Paid to Suppliers",
+    "Transportation Charges",
     "Worker Wages",
     "Owner Salary",
     "Other Owner Withdrawal",
@@ -61,7 +61,7 @@ DAY_FIELDS = [
     "Shop Rent paid",
     "Loan Repayment",
     "Other Income",
-    "Other Cost"
+    "Other costs"
 ]
 
 PT_SHEET_OLD_OUTPUT_STRUCTURE = '''
@@ -252,7 +252,7 @@ Extract data strictly according to the following JSON structure.
     - NEVER include null values in your output - completely omit the field instead
     - NEVER include fields with null, None, or empty values - omit them entirely
     - Each "Day X" object should ONLY contain the 2-5 fields that actually have data
-    - DO NOT include all 15 fields for each day - only include fields with actual values
+    - DO NOT include all 14 fields for each day - only include fields with actual values
     - This is NOT optional - sparse output is mandatory to reduce token usage
     - If you include null values, your output is INCORRECT
 5.  **Formatting:** Output ONLY valid JSON with no markdown, no comments, no explanations.
@@ -265,13 +265,13 @@ If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
     "Enterprise ID": "ABC123",
     "Month": "Jan 25", // Do not use full month/year names. Keep it 3 chars of Month, a space and 2 digits of the year.
     "Day 1": {
-      "Sale in cash and UPI": 500,
+      "Sale in Cash and UPI": 500,
       "Shop Rent paid": 200
     },
     "Day 2": {
-      "Sale in cash and UPI": 300,
-      "Buy raw material in cash and UPI": 150,
-      "Other Cost": 50
+      "Sale in Cash and UPI": 300,
+      "Raw Material (Cash & UPI)": 150,
+      "Other costs": 50
     }
   }
 }
@@ -282,9 +282,9 @@ If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
     "Enterprise ID": "ABC123",
     "Month": "Jan 25",
     "Day 1": {
-      "Sale in cash and UPI": 500,
-      "Sale on credit": null,
-      "Cash received": null,
+      "Sale in Cash and UPI": 500,
+      "Sale on Credit": null,
+      "Cash Received": null,
       ...ALL OTHER FIELDS AS NULL...
       "Shop Rent paid": 200
     }
