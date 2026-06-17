@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from PIL import Image
 import io
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Annotated
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -26,42 +26,42 @@ DAYBOOK_SHEET_OUTPUT_STRUCTURE = '''
     "Enterprise ID": "string",
     "Month": "MMM YY",
     "Day 1": {
-        "Date": "date",
-        "Cash Sale": "float",
-        "Credit Sale": "float",
-        "Cash Collection": "float",
-        "Cash Purchase": "float",
-        "Credit Purchase": "float",
-        "Cash Paid to Suppliers": "float",
-        "Transportation": "float",
-        "Owner's Wages": "float", 
-        "Workers' Wages": "float",
-        "Electricity": "float",
-        "Repairs": "float",
-        "Other Cost": "float",
+        "Sale in cash and UPI": "float",
+        "Sale on credit": "float",
+        "Cash received": "float",
+        "Buy raw material in cash and UPI": "float",
+        "Buy raw material on credit": "float",
+        "Cash paid to suppliers": "float",
+        "Cash paid for transportation": "float",
+        "Worker Wages": "float",
+        "Owner Salary": "float",
+        "Other Owner Withdrawal": "float",
+        "Electricity / Fuel": "float",
+        "Shop Rent paid": "float",
+        "Loan Repayment": "float",
         "Other Income": "float",
-        "Loan": "float",
-        "Interest": "float",
-        "Amount": "float"
+        "Other Cost": "float"
     }
+  }
 }
 '''
 
 DAY_FIELDS = [
     "Sale in cash and UPI",
     "Sale on credit",
-    "Cash received from customers",
+    "Cash received",
     "Buy raw material in cash and UPI",
     "Buy raw material on credit",
     "Cash paid to suppliers",
     "Cash paid for transportation",
-    "Salary / Wages paid to Workers",
-    "Salary / Wages paid by Owners",
-    "Electricity, water and fuel cost",
-    "Rent paid",
-    "Repayment of loan",
-    "Other income",
-    "Other costs"
+    "Worker Wages",
+    "Owner Salary",
+    "Other Owner Withdrawal",
+    "Electricity / Fuel",
+    "Shop Rent paid",
+    "Loan Repayment",
+    "Other Income",
+    "Other Cost"
 ]
 
 PT_SHEET_OLD_OUTPUT_STRUCTURE = '''
@@ -252,7 +252,7 @@ Extract data strictly according to the following JSON structure.
     - NEVER include null values in your output - completely omit the field instead
     - NEVER include fields with null, None, or empty values - omit them entirely
     - Each "Day X" object should ONLY contain the 2-5 fields that actually have data
-    - DO NOT include all 14 fields for each day - only include fields with actual values
+    - DO NOT include all 15 fields for each day - only include fields with actual values
     - This is NOT optional - sparse output is mandatory to reduce token usage
     - If you include null values, your output is INCORRECT
 5.  **Formatting:** Output ONLY valid JSON with no markdown, no comments, no explanations.
@@ -263,15 +263,15 @@ If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
 {
   "Daybook Record": {
     "Enterprise ID": "ABC123",
-    "Month": "Jan 25",
+    "Month": "Jan 25", // Do not use full month/year names. Keep it 3 chars of Month, a space and 2 digits of the year.
     "Day 1": {
       "Sale in cash and UPI": 500,
-      "Rent paid": 200
+      "Shop Rent paid": 200
     },
     "Day 2": {
       "Sale in cash and UPI": 300,
       "Buy raw material in cash and UPI": 150,
-      "Other costs": 50
+      "Other Cost": 50
     }
   }
 }
@@ -284,9 +284,9 @@ If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
     "Day 1": {
       "Sale in cash and UPI": 500,
       "Sale on credit": null,
-      "Cash received from customers": null,
+      "Cash received": null,
       ...ALL OTHER FIELDS AS NULL...
-      "Rent paid": 200
+      "Shop Rent paid": 200
     }
   }
 }
