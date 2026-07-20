@@ -4,14 +4,30 @@ import json
 import re
 import logging
 import base64
+from enum import Enum
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from PIL import Image
+from PIL import Image, ImageOps
 import io
 from typing import Optional, Dict, Any, List, Tuple, Annotated
 from datetime import datetime
 from dotenv import load_dotenv
+
+# Max upload size (bytes) - Vercel Hobby=4.5MB, Pro=25MB
+MAX_UPLOAD_SIZE = 4.5 * 1024 * 1024  # 4.5 MB default for Hobby plan
+# Target max dimension for Gemini (reduces file size while keeping quality)
+MAX_IMAGE_DIMENSION = 2048
+# JPEG quality for compression
+JPEG_QUALITY = 85
+
+
+class DocumentType(str, Enum):
+    """Document types supported by the API."""
+    PT_SHEET_OLD = "PT Sheet Old"
+    PT_SHEET_NEW = "PT Sheet New"
+    DAYBOOK = "Daybook"
+    ONE_TIME_INFO_SHEET = "One Time Info Sheet"
 
 # Configure logging
 logging.basicConfig(
@@ -295,7 +311,34 @@ If Day 1 has values in only 2 cells and Day 2 has values in only 3 cells:
 # Initialize environment variables
 load_dotenv()
 
-app = FastAPI(title="Image Processing API")
+app = FastAPI(
+    title="GenAI Image Processing API",
+    description="""
+## Financial Document Processing API
+
+Upload images of handwritten financial documents and extract structured data using AI.
+
+### Supported Document Types
+- **PT Sheet Old** - Periodic Transaction Sheet (Old Format)
+- **PT Sheet New** - Periodic Transaction Sheet (New Format)  
+- **Daybook** - Daily financial transaction records
+- **One Time Info Sheet** - Enterprise profile and financial information
+
+### How to Use
+1. Select a document type from the dropdown
+2. Upload an image file (JPEG/PNG, max 4.5MB)
+3. Receive structured JSON data extracted from the image
+
+### Notes
+- Images are auto-compressed if they exceed size limits
+- Mobile photos are auto-rotated based on EXIF data
+- For best results, ensure the document is clearly visible and well-lit
+    """,
+    version="1.0.0",
+    contact={
+        "name": "API Support",
+    }
+)
 
 # Configure CORS
 app.add_middleware(
@@ -437,15 +480,78 @@ class JsonCorrector:
                     "partial_content": text[:2000] + "..." if len(text) > 2000 else text
                 }
 
-@app.get("/")
+@app.get(
+    "/",
+    summary="API Health Check",
+    description="Returns API information and available endpoints."
+)
 def read_root():
     return {
-        "message": "Welcome to the Image Processing API",
+        "message": "GenAI Image Processing API",
+        "version": "1.0.0",
         "endpoints": {
             "/": "This welcome message",
-            "/process-image/": "POST endpoint to process an image and extract information"
-        }
+            "/process-image/": "POST - Process financial document images",
+            "/docs": "Interactive API documentation (Swagger UI)",
+            "/redoc": "Alternative API documentation (ReDoc)"
+        },
+        "supported_document_types": [dt.value for dt in DocumentType]
     }
+
+def compress_image(image_data: bytes) -> bytes:
+    """
+    Compress and resize image to fit within Vercel's payload limits.
+    Mobile cameras produce 3-10+ MB images that exceed Vercel's 4.5 MB limit.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_data))
+        
+        # Convert RGBA to RGB (JPEG doesn't support alpha)
+        if img.mode in ('RGBA', 'LA', 'P'):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
+            img = background
+        
+        # Auto-rotate based on EXIF data (mobile photos)
+        try:
+            img = ImageOps.exif_transpose(img)
+        except:
+            pass
+        
+        # Resize if too large (maintains aspect ratio)
+        original_size = img.size
+        if max(img.size) > MAX_IMAGE_DIMENSION:
+            ratio = MAX_IMAGE_DIMENSION / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+            logging.info(f"Resized image from {original_size} to {new_size}")
+        
+        # Convert to JPEG and compress
+        img_byte_arr = io.BytesIO()
+        
+        # If originally PNG with transparency, keep as PNG but reduce quality
+        if img.mode == 'RGBA':
+            img.save(img_byte_arr, format='PNG', optimize=True)
+        else:
+            img.save(img_byte_arr, format='JPEG', quality=JPEG_QUALITY, optimize=True)
+        
+        compressed = img_byte_arr.getvalue()
+        
+        original_mb = len(image_data) / (1024 * 1024)
+        compressed_mb = len(compressed) / (1024 * 1024)
+        
+        if original_mb > compressed_mb:
+            logging.info(f"Compressed image: {original_mb:.2f}MB -> {compressed_mb:.2f}MB")
+        
+        return compressed
+        
+    except Exception as e:
+        logging.error(f"Error compressing image: {str(e)}")
+        # Return original if compression fails
+        return image_data
+
 
 class ImageProcessor:
     def __init__(self, model_type="gemini"):
@@ -570,29 +676,65 @@ class ImageProcessor:
 # Initialize the image processor
 image_processor = ImageProcessor()
 
-@app.post("/process-image/")
+@app.post(
+    "/process-image/",
+    summary="Process financial document image",
+    description="""
+Upload an image of a financial document to extract structured data.
+
+**Supported formats:** JPEG, PNG
+**Max file size:** 4.5MB (auto-compressed if larger)
+
+The API will:
+1. Validate and compress the image if needed
+2. Send to Gemini AI for analysis
+3. Return structured JSON based on document type
+    """,
+    response_description="Structured JSON data extracted from the image"
+)
 async def process_image(
-    file: UploadFile = File(...), 
-    document_type: Optional[str] = Form(None)
+    file: UploadFile = File(
+        ..., 
+        description="Image file to process (JPEG/PNG, max 4.5MB)",
+        media_type="image/jpeg,image/png"
+    ), 
+    document_type: Optional[DocumentType] = Form(
+        None,
+        description="Type of document to process. Select from dropdown."
+    )
 ):
-    """
-    Process an uploaded image and extract information based on document type.
-    
-    Args:
-        file: The uploaded image file
-        document_type: Optional document type ("PT Sheet Old", "PT Sheet New", "Daybook", "One Time Info Sheet")
-    """
     try:
-        # Read and validate the image file
+        # Read the image file
         image_data = await file.read()
+        
+        # Check file size before processing
+        file_size_mb = len(image_data) / (1024 * 1024)
+        logging.info(f"Received image: {file.filename}, Size: {file_size_mb:.2f}MB, Type: {document_type}")
+        
+        # Validate it's a valid image first
         try:
-            # Validate that it's a valid image file
             Image.open(io.BytesIO(image_data))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
-
+        
+        # Compress image if it's too large for Vercel
+        if len(image_data) > MAX_UPLOAD_SIZE:
+            logging.warning(f"Image exceeds {MAX_UPLOAD_SIZE/(1024*1024):.1f}MB limit, compressing...")
+            image_data = compress_image(image_data)
+            
+            # If still too large after compression, reject
+            if len(image_data) > MAX_UPLOAD_SIZE:
+                compressed_mb = len(image_data) / (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Image too large ({compressed_mb:.1f}MB). Maximum allowed is {MAX_UPLOAD_SIZE/(1024*1024):.1f}MB."
+                )
+        
+        # Convert enum to string value for processing
+        doc_type_str = document_type.value if document_type else None
+        
         # Process the image
-        result = await image_processor.process_single_image(image_data, document_type)
+        result = await image_processor.process_single_image(image_data, doc_type_str)
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
@@ -602,4 +744,11 @@ async def process_image(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        # Handle Vercel's payload too large error
+        if "payload" in error_msg.lower() or "too large" in error_msg.lower():
+            raise HTTPException(
+                status_code=413,
+                detail="Image too large. Please use a smaller image or compress it before uploading."
+            )
+        raise HTTPException(status_code=500, detail=error_msg)
