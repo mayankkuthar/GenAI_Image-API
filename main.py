@@ -1,4 +1,5 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import os
 import json
 import re
@@ -354,8 +355,15 @@ GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("GOOGLE_API_KEY not found in environment variables!")
 
-genai.configure(api_key=GEMINI_API_KEY)
-gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+
+# Model + thinking level are configurable via env so they can change without a code edit.
+# Defaults chosen by evaluation on the sample Daybook (2026-11-20): gemini-3.8-flash @ LOW thinking
+# gave 88-91/95 cells correct in ~12 s. gemini-2.5-flash is deprecated from 2026-12-01.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "LOW")
+# Thinking tokens count toward this limit. 4096 truncated replies mid-sheet; 16384 leaves ample room.
+GEMINI_MAX_OUTPUT_TOKENS = 16384
 
 class JsonCorrector:
     def __init__(self):
@@ -557,7 +565,7 @@ class ImageProcessor:
     def __init__(self, model_type="gemini"):
         """Initialize the image processor with API key."""
         self.model_type = model_type.lower()
-        self.gemini_model = gemini_model
+        self.gemini_client = gemini_client
         self.json_corrector = JsonCorrector()
         
     async def fill_missing_fields(self, daybook_response: Dict[str, Any]) -> Dict[str, Any]:
@@ -608,26 +616,36 @@ class ImageProcessor:
     async def process_with_gemini(self, image_data: bytes, system_message: str) -> Dict:
         """Process an image with Gemini model."""
         try:
-            image = Image.open(io.BytesIO(image_data))
-            img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format=image.format or 'PNG')
-            img_byte_arr = img_byte_arr.getvalue()
+            # Send the original bytes (re-encoding a JPEG would lose quality); only detect the format.
+            image_format = (Image.open(io.BytesIO(image_data)).format or "PNG").upper()
+            mime_type = "image/jpeg" if image_format in ("JPEG", "MPO") else f"image/{image_format.lower()}"
 
-            response = self.gemini_model.generate_content(
+            started = datetime.now()
+            response = self.gemini_client.models.generate_content(
+                model=GEMINI_MODEL,
                 contents=[
+                    types.Part.from_bytes(data=image_data, mime_type=mime_type),
                     system_message,
-                    {"mime_type": f"image/{image.format.lower() if image.format else 'png'}", 
-                     "data": img_byte_arr}
                 ],
-                stream=False,
-                generation_config={"temperature": 0.5, "max_output_tokens": 4096}
+                # No temperature: deprecated (ignored) for Gemini 3.6+ models.
+                config=types.GenerateContentConfig(
+                    max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
+                    response_mime_type="application/json",  # forces valid JSON: no ``` fences, no // comments
+                    thinking_config=types.ThinkingConfig(thinking_level=GEMINI_THINKING_LEVEL),
+                ),
             )
 
-            # Get response text and ensure it's complete
-            response.resolve()
-            
+            candidate = response.candidates[0] if response.candidates else None
+            finish_reason = getattr(getattr(candidate, "finish_reason", None), "name", "UNKNOWN")
+            usage = response.usage_metadata
+            logging.info(
+                f"Gemini {GEMINI_MODEL} ({GEMINI_THINKING_LEVEL}): {(datetime.now() - started).total_seconds():.1f}s, "
+                f"finish={finish_reason}, thinking_tokens={getattr(usage, 'thoughts_token_count', None)}, "
+                f"answer_tokens={getattr(usage, 'candidates_token_count', None)}"
+            )
+
             # Clean and parse the response
-            return self.json_corrector.correct_json(response.text)
+            return self.json_corrector.correct_json(response.text or "")
 
         except Exception as e:
             error_msg = f"Error processing image with Gemini: {str(e)}"
