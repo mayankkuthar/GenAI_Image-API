@@ -365,6 +365,22 @@ GEMINI_THINKING_LEVEL = os.getenv("GEMINI_THINKING_LEVEL", "LOW")
 # Thinking tokens count toward this limit. 4096 truncated replies mid-sheet; 16384 leaves ample room.
 GEMINI_MAX_OUTPUT_TOKENS = 16384
 
+# Orientation pre-check: a fast model reports which image edge is the top of the page, and the image is
+# rotated upright BEFORE extraction. Evaluated 2026-11-26: on a sideways photo the extractor shifted values
+# one day down and misread the year; prompting it to "mentally rotate" made this worse, while rotating the
+# pixels fixed it. gemini-3.6-flash @ MINIMAL detected all 4 orientations correctly in ~2.5-3.7 s.
+# Set GEMINI_ORIENTATION_MODEL to an empty string to disable the check.
+GEMINI_ORIENTATION_MODEL = os.getenv("GEMINI_ORIENTATION_MODEL", "gemini-3.6-flash")
+GEMINI_ORIENTATION_THINKING_LEVEL = os.getenv("GEMINI_ORIENTATION_THINKING_LEVEL", "MINIMAL")
+ORIENTATION_CHECK_MAX_SIDE = 768  # the check only needs the layout, so send a small copy (faster)
+ORIENTATION_PROMPT = (
+    'This is a photo of a printed form or ledger page. Its printed header (e.g. "Enterprise ID", "Month", '
+    '"Year", or the form title) is at the TOP of the page. Which edge of the IMAGE is the top of the page on? '
+    'Answer JSON: {"page_top_edge": "top" | "right" | "bottom" | "left"}'
+)
+# Counter-clockwise degrees for PIL's Image.rotate that move each edge to the top.
+ROTATION_FOR_TOP_EDGE = {"top": 0, "right": 90, "bottom": 180, "left": 270}
+
 class JsonCorrector:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -561,6 +577,64 @@ def compress_image(image_data: bytes) -> bytes:
         return image_data
 
 
+def _encode_jpeg(img: Image.Image) -> bytes:
+    """Encode as high-quality JPEG (used only when the pixels had to change)."""
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    return buf.getvalue()
+
+
+def detect_page_top_edge(image_data: bytes) -> Optional[str]:
+    """Ask a fast model which image edge is the top of the page. Returns None if unknown."""
+    if not GEMINI_ORIENTATION_MODEL:
+        return None
+    try:
+        preview = Image.open(io.BytesIO(image_data))
+        preview.thumbnail((ORIENTATION_CHECK_MAX_SIDE, ORIENTATION_CHECK_MAX_SIDE))
+        started = datetime.now()
+        response = gemini_client.models.generate_content(
+            model=GEMINI_ORIENTATION_MODEL,
+            contents=[types.Part.from_bytes(data=_encode_jpeg(preview), mime_type="image/jpeg"), ORIENTATION_PROMPT],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                max_output_tokens=1024,  # thinking tokens count toward this, so keep headroom
+                thinking_config=types.ThinkingConfig(thinking_level=GEMINI_ORIENTATION_THINKING_LEVEL),
+            ),
+        )
+        parsed = json.loads(response.text or "{}")
+        edge = parsed.get("page_top_edge") if isinstance(parsed, dict) else None
+        logging.info(f"Orientation check ({GEMINI_ORIENTATION_MODEL}): page top = {edge!r}, "
+                     f"{(datetime.now() - started).total_seconds():.1f}s")
+        return edge if edge in ROTATION_FOR_TOP_EDGE else None
+    except Exception as e:
+        logging.warning(f"Orientation check failed, extracting from the image as-is: {e}")
+        return None
+
+
+def make_upright(image_data: bytes) -> bytes:
+    """
+    Return the image rotated so the page is upright. Any failure returns the image unchanged,
+    so the orientation check can never block an extraction.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_data))
+        # Apply a phone's EXIF rotation tag first, so the check and the extractor see the same pixels.
+        if img.getexif().get(0x0112, 1) not in (None, 1):
+            image_data = _encode_jpeg(ImageOps.exif_transpose(img))
+
+        edge = detect_page_top_edge(image_data)
+        degrees = ROTATION_FOR_TOP_EDGE.get(edge, 0) if edge else 0
+        if degrees == 0:
+            return image_data
+        logging.info(f"Page top is on the {edge} edge: rotating {degrees} degrees to upright")
+        return _encode_jpeg(Image.open(io.BytesIO(image_data)).rotate(degrees, expand=True))
+    except Exception as e:
+        logging.warning(f"Could not make image upright, using it as-is: {e}")
+        return image_data
+
+
 class ImageProcessor:
     def __init__(self, model_type="gemini"):
         """Initialize the image processor with API key."""
@@ -676,6 +750,9 @@ class ImageProcessor:
                     "{{OUTPUT_STRUCTURE}}",
                     output_structure
                 )
+
+            # Rotate sideways/upside-down photos upright first: extraction on rotated grids shifts rows
+            image_data = make_upright(image_data)
 
             # Process with Gemini
             result = await self.process_with_gemini(image_data, system_message)
